@@ -1,0 +1,14 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/photo_frame" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:padding="6dp" android:background="@drawable/photo_frame_border" android:clipToOutline="true"
+    android:contentDescription="@string/photo_frame_tap">
+    <ImageView android:id="@+id/photo_fill" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="centerCrop" android:background="@drawable/photo_frame_inner" android:clipToOutline="true"
+        android:visibility="gone" android:contentDescription="@string/photo_frame_photo" />
+    <ImageView android:id="@+id/photo_fit" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitCenter" android:background="@drawable/photo_frame_inner" android:clipToOutline="true"
+        android:visibility="gone" android:contentDescription="@string/photo_frame_photo" />
+    <TextView android:id="@+id/photo_placeholder" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@drawable/photo_frame_inner" android:gravity="center" android:padding="12dp"
+        android:text="@string/photo_frame_placeholder" android:textColor="#7B3B4A" android:textSize="16sp" />
+</FrameLayout>

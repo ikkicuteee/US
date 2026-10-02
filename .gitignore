@@ -1,0 +1,44 @@
+# Local tools and editor settings
+/.tools/
+/.venv/
+/.vscode/
+**/.idea/
+*.iml
+
+# Android / Gradle output and machine configuration
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+*.hprof
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Personal Firebase configuration and credentials
+**/google-services.json
+/firebase/.firebaserc
+**/.firebase/
+.env
+.env.*
+!.env.example
+*service-account*.json
+*serviceAccount*.json
+credentials.json
+
+# Retired server and local archives (include private conversations/media)
+/server/
+/archive/
+
+# Generated diagnostics and data
+*.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+**/__pycache__/
+*.pyc
+/docs/*-ui.xml
+.DS_Store
+Thumbs.db

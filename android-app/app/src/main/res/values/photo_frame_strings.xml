@@ -1,0 +1,10 @@
+<resources>
+    <string name="photo_frame_2x2">US photo frame · 2×2</string>
+    <string name="photo_frame_3x2">US photo frame · 3×2</string>
+    <string name="photo_frame_2x3">US photo frame · 2×3</string>
+    <string name="photo_frame_3x3">US photo frame · 3×3</string>
+    <string name="photo_frame_description">Choose a local photo for a resizable frame. Tap to change its picture.</string>
+    <string name="photo_frame_tap">US photo frame. Tap to choose or change the photo.</string>
+    <string name="photo_frame_photo">Your chosen photo</string>
+    <string name="photo_frame_placeholder">US\nTap to choose a photo</string>
+</resources>
