@@ -2,6 +2,60 @@
 
 Date: 2026-10-01 (Asia/Manila). App version 3.0, versionCode 4.
 
+## Version 3.10.1 update - 2026-10-25
+
+- Removed the drawing widget's pink background frame, 8 dp padding and caption strip. A dedicated rounded Mist background matches the bitmap, leaving no visible border. Image proportions and tap-to-open behavior are preserved. The photo-frame widget drawable is unchanged.
+- Added drawing widget refresh on app startup, using the existing unchanged-content check.
+- APK assembly and lint passed. Log: .tools/us-3.10.1-build.log. Installed versionCode 15 / versionName 3.10.1 using adb install -r on the connected TECNO phone; app data was preserved.
+- Visually confirmed the existing home-screen widget updated without re-adding it and no longer shows the frame. Tapping it opened Our drawing successfully. Screenshot: .tools/us-widget-3.10.1.png. No new unit tests for this presentation-only change; no Firebase rule changes.
+- APK: US-3.10.1.apk.
+
+## Version 3.10 update - 2026-10-25
+
+- Savings now uses separate deposit/deduction dialogs. Deposits require only an amount; deductions require a reason. Goals have name, amount and target date. Reason is no longer required to close a goal. History is collapsed, and an absent goal no longer shows an empty progress bar.
+- Added a bounded 384x384 shared drawing canvas and resizable home-screen widget. Each author owns a separate transparent layer; eraser/Clear only affect that layer. Share updates the current layer in Realtime Database. Local drafts are isolated by account/room. Widget refresh skips unchanged image content and does not introduce a periodic timer. Both phones still need an active app connection to receive updates promptly.
+- Added Firebase drawing ownership/size/field checks and reserved drawing IDs against collisions from other item types. Updated saving/goal validation to match the requested forms. All 150 rules checks passed in the local demo emulator; it was stopped afterward. Production rules were NOT deployed. Publish firebase/database.rules.json before using the new forms/drawing sync.
+- Map markers now render bounded profile photo pins, falling back to an initial. Profiles regenerate pins only when changed; GPS updates reuse three overlays. Accuracy remains in labels.
+- Added accurate Firebase-versus-internet status, a throttled retry button and one reconnect attempt on a validated network change. Existing pending edits are preserved. No global network or router settings were changed.
+- APK assembly, 79 JVM/Robolectric tests and lint pass (0 errors, 53 warnings). Native rendering checks cover erasing/clearing while preserving the partner layer, rejecting malformed/oversized images, photo rendering/fallback, and canvas drawing staying inside its bounds. The physical phone revealed a canvas background overdraw issue, fixed before the final build. Logs: .tools/us-3.10-build-final.log and .tools/us-3.10-rules.log.
+- Installed versionCode 14 / versionName 3.10 via adb install -r on the authorized TECNO CM8. No uninstall, data clear, sign-out, or test transactions. Visually checked the corrected drawing page and local profile pin; inspected deposit, deduction and goal form fields without saving. Screenshot artifacts remain local under .tools. The partner phone was not connected; shared drawing/widget delivery between two phones and Redmi performance remain unverified.
+- Affected Wi-Fi: project database IPv4 TLS/WebSocket upgrade returned HTTP 101; IPv6 TCP connections timed out after seven seconds. Google sign-in/token hosts likewise responded over IPv4 and timed out over IPv6. The app remained disconnected from Firebase despite Android validating internet access. This supports a router/ISP IPv6-path problem, but the precise Firebase SDK failure was not captured. No claim that the Wi-Fi issue is fixed. Firebase retry cannot repair the network path.
+
+## Version 3.9 update - 2026-10-17
+
+- Removed the large Map heading and repeated inline sharing/setup guidance. A compact sharing row exposes settings through a sliders icon. Accuracy/routing explanations and full stop reasons are available in the information dialog; location age and accuracy remain visible.
+- Refresh is an icon beside the distance. The normal layout has a 380 dp map and scrolls on small screens, so explanatory text cannot collapse the viewport. Full-screen and recenter controls remain on the map.
+- APK assembly and all 72 regression tests passed. Lint: 0 errors, 49 warnings. Log: .tools/us-3.9-build.log. APK: US-3.9.apk, versionCode 13 / versionName 3.9.
+- No phone was connected. The new layout has not been visually verified on the Redmi or installed on either phone. No location-service behavior, Firebase schema or rules were changed for 3.9.
+
+## Version 3.8 update - 2026-10-17
+
+- User reports app-only crashes on manual map refresh on a Redmi 13C (6/128 GB), and delayed/stopped background updates. No affected-device crash trace was available; the exact reported exception is not confirmed.
+- Fixed a reproducible scheduling flaw: the previous manual-refresh branch held regular uploads while waiting up to 20 seconds for accuracy <=25 m. Refresh now accepts a fresh measured position, finishes within 15 seconds, and leaves the regular 15-second delivery deadline intact. Timer-driven delivery, five-second GPS/network sampling, independent provider registration and reconnect retries of only recent measurements are implemented.
+- Map resources survive temporary view detachment and are released once when the map screen is disposed. Marker/circle/line instances are reused, zoom padding is bounded by the viewport, and normal-layout scrolling preserves map height. These address lifecycle and allocation risks; they do not establish the cause of the Redmi crash without its log.
+- The opted-in foreground location service holds a timed, renewed partial wake lock, released on stop/error/destruction. The app offers the Android battery exemption and Redmi autostart guidance; force-stop and OEM restrictions remain outside the app's guarantees. Extra battery use during continuous sharing is expected.
+- Automated regression coverage: delivery with poor accuracy, manual refresh without deadline shifts, stale-fix rejection, reconnect retry, refresh timeout/stop cleanup, 1,000 map updates retaining five overlays, temporary detach, tiny viewport, and safe updates after final release. Map/provider lifecycle tests use Robolectric Android API 28; this does not simulate actual GPS, Doze, Xiaomi process management or device memory pressure.
+- No Firebase rule changes for 3.8. The 3.7 cycle rules and their prior 126 passing emulator checks remain applicable. No production deployment, phone installation, physical-device performance measurement or real background-location test was performed for this update.
+- Final APK assembly and all 72 tests passed (58 previous, eight delivery/freshness tests, four map lifecycle tests, two provider/refresh lifecycle tests). Lint: 0 errors, 49 warnings, including the battery-exemption policy reminder. This request supports the explicitly enabled family location-sharing use case; exemption remains the phone owner's choice. Log: .tools/us-3.8-final-build.log. APK metadata verified: versionCode 12 / versionName 3.8. A copy is available at US-3.8.apk. Build uses a locally downloaded, SHA-256-verified Temurin JDK 21 because the previous VS Code Java runtime was removed by an extension update.
+
+## Version 3.7 update — 2026-10-17
+
+- Built versionCode 11 / versionName 3.7 with a shared cycle tracker in Plans. Both paired accounts can log/edit periods and daily flow, pain, symptoms, mood, energy, sleep and notes. Calendar markers distinguish recorded bleeding from the estimated next start.
+- Estimate settings support a manual usual length or a median of up to six recorded intervals after three period starts. Overlaps, widely varying intervals, ongoing bleeding and estimates within logged bleeding suppress automatic dates as appropriate. No ovulation, fertility, pregnancy or contraceptive predictions are made. Missed estimates do not generate imaginary cycles.
+- Uses the existing per-account/room cache and pending outbox. Cycle changes do not create health-detail notifications or widget entries. UI shows pending sync and detects edits received while a form is open. Firebase rules add a validated cycle type restricted to room members.
+- All 58 JVM tests passed (16 cycle tests plus 42 previous tests). All 126 Firebase emulator rules checks passed, including shared cycle reads/edits and rejection of outsiders, malformed records and invalid bounds. APK assembly and lint passed. Logs: .tools/us-3.7-final-build.log and .tools/us-3.7-rules-tests.log.
+- No phone was connected; calendar rendering and two-phone sync were not device-tested. The new APK has NOT been installed on a phone. Production Firebase rules have NOT been deployed; publish firebase/database.rules.json before using the new tracker. The local emulator was stopped after tests.
+- Reference: https://share.upmc.com/2026/01/tracking-menstrual-cycle-beginners-guide/ . Cross-check: https://womenshealth.gov/menstrual-cycle/your-menstrual-cycle . The estimate algorithm is a product heuristic, not a validated medical prediction model.
+
+## Version 3.6 update — 2026-10-16
+
+- VersionCode 10 / versionName 3.6. Location sharing targets 15 seconds with 1-second GPS/network sampling, early accuracy improvements, stale-fix rejection and per-provider sample selection.
+- Added manual local refresh (20-second deadline, requires a measurement after tapping), partner position reload (12-second deadline), reported-accuracy circles and labels, and a shortcut to Precise location/battery settings. Refresh does not enable sharing or change the partner's measurement timestamp.
+- Added five normal alerts and PASUGAT / About to cry priority alerts. Removed all priority-alert confirmation dialogs. Settings credits jwcaburog.
+- All 42 JVM tests passed, including 6 new location-selection tests. APK assembly and lint passed with 0 errors and 48 warnings. Logs are kept locally in .tools/us-3.6-build.log and .tools/us-3.6-final-build.log.
+- No device was connected; actual GPS accuracy, background cadence, map layout and two-phone notification delivery remain unverified. No phone installation or Firebase rules deployment was performed. Existing rules and permissions are unchanged.
+- Frequent GPS sampling increases battery use. Android/GPS/network delays and the existing Spark-only notification architecture still prevent any emergency-delivery guarantee. The previously diagnosed Wi-Fi IPv6 failure is not addressed by this change.
+
 ## Version 3.5 update — 2026-10-02
 
 - Built versionCode 9 / versionName 3.5. APK: android-app/app/build/outputs/apk/debug/app-debug.apk.

@@ -1,0 +1,6 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/drawing_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/drawing_widget_background" android:clipToOutline="true">
+    <ImageView android:id="@+id/drawing_image" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitCenter" android:contentDescription="@string/drawing_widget_name" />
+</FrameLayout>

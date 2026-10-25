@@ -13,14 +13,15 @@ android {
         applicationId = "com.example.localtwouserapp"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "3.5"
+        versionCode = 15
+        versionName = "3.10.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
         compose = true
     }
+    testOptions.unitTests.isIncludeAndroidResources = true
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -43,6 +44,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     implementation("androidx.core:core-ktx:1.13.1")

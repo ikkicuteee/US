@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +26,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
@@ -38,6 +41,9 @@ import java.time.format.DateTimeFormatter
     val selected = LocalDate.parse(selectedText)
     var adding by remember { mutableStateOf<Boolean?>(null) }
     val context = LocalContext.current
+    var showCycle by rememberSaveable { mutableStateOf(false) }
+    val cyclePeriods = remember(entries) { CycleTracker.periods(entries) }
+    val cycleEstimate = remember(entries, LocalDate.now()) { CycleTracker.estimate(entries, LocalDate.now()) }
     PageColumn {
         Heading("Days to look forward to.", "Together since September 1, 2021.")
         SoftCard {
@@ -60,15 +66,26 @@ import java.time.format.DateTimeFormatter
                             val hasEvents = PlanSchedule.on(entries, date).isNotEmpty()
                             Column(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(15.dp)).background(if (date == selected) Wine else if (date == LocalDate.now()) Blush.copy(alpha = .35f) else Color.Transparent).clickable { selectedText = date.toString() }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 Text("$day", color = if (date == selected) Color.White else Ink, fontWeight = if (date == LocalDate.now()) FontWeight.Bold else FontWeight.Normal)
-                                if (milestone) Icon(Icons.Default.Favorite, "Our special day", tint = if (date == selected) Blush else Rose, modifier = Modifier.size(12.dp))
-                                else if (hasEvents) Box(Modifier.padding(top = 3.dp).size(4.dp).background(if (date == selected) Blush else Rose, CircleShape))
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (milestone) Icon(Icons.Default.Favorite, "Our special day", tint = if (date == selected) Blush else Rose, modifier = Modifier.size(12.dp))
+                                    else if (hasEvents) Box(Modifier.size(4.dp).background(if (date == selected) Blush else Rose, CircleShape))
+                                    val recorded = CycleTracker.recorded(cyclePeriods, date, LocalDate.now())
+                                    val predicted = date >= LocalDate.now() && cycleEstimate.next == date
+                                    if (recorded || predicted) Box(Modifier.size(8.dp).border(1.dp, if (date == selected) Blush else Rose, CircleShape)
+                                        .background(if (recorded) Blush else Color.Transparent, CircleShape)
+                                        .semantics { contentDescription = if (recorded) "Logged period" else "Estimated period start" })
+                                    if (CycleTracker.day(entries, date) != null) Box(Modifier.size(3.dp).background(if (date == selected) Color.White else Wine, CircleShape).semantics { contentDescription = "Cycle daily log" })
+                                }
                             }
                         }
                     }
                 }
             }
             TextButton(onClick = { monthText = YearMonth.now().toString(); selectedText = LocalDate.now().toString() }) { Text("Back to today") }
+            if (cyclePeriods.isNotEmpty()) Text("Filled pink circle: logged period · outline: estimated start", fontSize = 11.sp, color = Wine)
         }
+        OutlinedButton(onClick = { showCycle = !showCycle }, modifier = Modifier.fillMaxWidth()) { Text(if (showCycle) "Hide cycle tracker" else "Open cycle tracker") }
+        if (showCycle) CycleCard(store, entries, selected, notify)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(selected.format(DateTimeFormatter.ofPattern("EEEE, MMM d")), fontWeight = FontWeight.Bold, fontSize = 20.sp); Text("Make time for each other", fontSize = 12.sp, color = Rose) }
 
@@ -155,37 +172,35 @@ import java.time.format.DateTimeFormatter
     var amount by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
     var goalEditor by remember { mutableStateOf(false) }
+    var transaction by remember { mutableStateOf<String?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
     PageColumn {
-        Heading("Dream a little bigger.", "Small steps toward something that belongs to both of you.")
+        Text("Savings", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         SoftCard {
-            Text(goal?.text ?: "Our next adventure", color = Rose, fontWeight = FontWeight.Bold)
+            Text(goal?.text ?: "Shared balance", color = Rose, fontWeight = FontWeight.Bold)
             Text(money(balance), color = Wine, fontSize = 36.sp, fontWeight = FontWeight.Bold)
             val target = goal?.amount ?: 0L
-            LinearProgressIndicator(progress = { if (target > 0) (balance.toFloat() / target).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape), color = Rose, trackColor = Mist)
-            Text(if (target > 0) "of ${money(target)} · ${((balance.toDouble() / target) * 100).toInt()}% together" else "Set a goal to start your journey", fontSize = 13.sp)
-            goal?.fields?.get("reason")?.let { Text(it, fontSize = 13.sp) }
+            if (target > 0) {
+                LinearProgressIndicator(progress = { (balance.toFloat() / target).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape), color = Rose, trackColor = Mist)
+                Text("of ${money(target)} · ${((balance.toDouble() / target) * 100).toInt()}%", fontSize = 13.sp)
+            }
             if (!goal?.date.isNullOrBlank()) Text("Target date: ${goal?.date}", color = Wine)
-            TextButton(onClick = { goalEditor = true }) { Text(if (goal == null) "Set our goal" else "Edit our goal") }
+            TextButton(onClick = { goalEditor = true }) { Text(if (goal == null) "Add goal" else "Edit goal") }
             if (goal != null) OutlinedButton(onClick = { closing = goal }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (balance >= goal.amount) "Goal reached · move to history" else "End goal · move to history")
+                Text(if (balance >= goal.amount) "Complete goal" else "End goal")
             }
             if (active.size > 1) {
                 Text("Other open goals", fontWeight = FontWeight.Bold)
                 active.filter { it.id != goal?.id }.forEach { other -> TextButton(onClick = { selectedGoal = other.id }) { Text(other.text) } }
             }
         }
-        SoftCard {
-            Text("A little contribution", fontWeight = FontWeight.Bold)
-            OutlinedTextField(amount, { amount = it }, label = { Text("Amount (₱)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(note, { note = it.take(100) }, label = { Text("Reason (required)") }, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(enabled = note.isNotBlank(), onClick = { val cents = MergeRules.cents(amount); if (cents == null) notify("Enter a positive amount with up to two decimal places.") else { store.put(Entry(type = "saving", text = note.trim(), amount = cents)); amount = ""; note = "" } }, modifier = Modifier.weight(1f)) { Text("+ Add") }
-                OutlinedButton(enabled = note.isNotBlank(), onClick = { val cents = MergeRules.cents(amount); if (cents == null) notify("Enter a positive amount with up to two decimal places.") else { store.put(Entry(type = "saving", text = note.trim(), amount = -cents)); amount = ""; note = "" } }, modifier = Modifier.weight(1f)) { Text("− Subtract") }
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = { amount = ""; note = ""; transaction = "add" }, modifier = Modifier.weight(1f)) { Text("Add money") }
+            OutlinedButton(onClick = { amount = ""; note = ""; transaction = "deduct" }, modifier = Modifier.weight(1f)) { Text("Deduct") }
         }
-        Text("Goal history", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        if (history.isEmpty()) Text("Closed goals will appear here.", color = Rose)
-        history.forEach { archived -> key(archived.id) { SoftCard {
+        TextButton(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "Hide goal history" else "Goal history (${history.size})") }
+        if (showHistory && history.isEmpty()) Text("No completed goals yet.", color = Rose)
+        if (showHistory) history.forEach { archived -> key(archived.id) { SoftCard {
             Text(archived.text, fontWeight = FontWeight.Bold)
             Text(if (archived.fields["outcome"] == "success") "Success · target reached" else "Failure · ended below target", color = Wine)
             Text("${money(archived.fields["finalBalance"]?.toLongOrNull() ?: 0)} saved / ${money(archived.amount)} target")
@@ -194,11 +209,26 @@ import java.time.format.DateTimeFormatter
                 Text("Closed: " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(stamp)), fontSize = 12.sp)
             }
         } } }
-        Text("Our savings story", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Transactions", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         ledger.asReversed().take(100).forEach { item -> SoftCard {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(item.text, modifier = Modifier.weight(1f)); Text((if (item.amount > 0) "+" else "") + money(item.amount), fontWeight = FontWeight.Bold, color = Wine) }
-            Text(if (item.author == store.deviceId) "Added by you" else "Added by $partnerName", color = Rose, fontSize = 11.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(item.text.ifBlank { if (item.amount >= 0) "Deposit" else "Withdrawal" }, modifier = Modifier.weight(1f)); Text((if (item.amount > 0) "+" else "") + money(item.amount), fontWeight = FontWeight.Bold, color = Wine) }
+            Text(if (item.author == store.deviceId) "You" else partnerName, color = Rose, fontSize = 11.sp)
         } }
+    }
+    transaction?.let { mode ->
+        val deduct = mode == "deduct"
+        AlertDialog(onDismissRequest = { transaction = null }, title = { Text(if (deduct) "Deduct money" else "Add money") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(amount, { amount = it.take(20) }, label = { Text("Amount") }, prefix = { Text("PHP ") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                if (deduct) OutlinedTextField(note, { note = it.take(100) }, label = { Text("Reason") })
+            } },
+            confirmButton = { TextButton(enabled = MergeRules.cents(amount) != null && (!deduct || note.isNotBlank()), onClick = {
+                val cents = MergeRules.cents(amount) ?: return@TextButton
+                runCatching { store.put(Entry(type = "saving", text = if (deduct) note.trim() else "", amount = if (deduct) -cents else cents)) }
+                    .onSuccess { transaction = null }
+                    .onFailure { notify(it.localizedMessage ?: "Could not save transaction") }
+            }) { Text(if (deduct) "Deduct" else "Add") } },
+            dismissButton = { TextButton(onClick = { transaction = null }) { Text("Cancel") } })
     }
     closing?.let { chosen ->
         AlertDialog(onDismissRequest = { closing = null }, title = { Text("Move this goal to history?") }, text = {
@@ -214,14 +244,12 @@ import java.time.format.DateTimeFormatter
         val editing = remember { goal }
         var title by remember { mutableStateOf(editing?.text.orEmpty()) }
         var target by remember { mutableStateOf(editing?.amount?.let { java.math.BigDecimal.valueOf(it, 2).toPlainString() }.orEmpty()) }
-        var reason by remember { mutableStateOf("") }
         var date by remember { mutableStateOf(editing?.date.orEmpty()) }
         val context = LocalContext.current
         AlertDialog(onDismissRequest = { goalEditor = false }, title = { Text("Our savings goal") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(title, { title = it.take(100) }, label = { Text("Goal name") })
-                OutlinedTextField(target, { target = it }, label = { Text("Target (₱)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                OutlinedTextField(reason, { reason = it.take(200) }, label = { Text("Reason for this goal/change (required)") })
+                OutlinedTextField(target, { target = it }, label = { Text("Goal amount (₱)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 OutlinedButton(onClick = {
                     val initial = runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now())
                     android.app.DatePickerDialog(context, { _, y, m, d -> date = LocalDate.of(y, m + 1, d).toString() }, initial.year, initial.monthValue - 1, initial.dayOfMonth).apply {
@@ -229,12 +257,12 @@ import java.time.format.DateTimeFormatter
                     }.show()
                 }) { Text(if (date.isBlank()) "Choose target date (required)" else "Target date: $date") }
             }
-        }, confirmButton = { TextButton(enabled = title.isNotBlank() && reason.isNotBlank() && date.isNotBlank(), onClick = {
+        }, confirmButton = { TextButton(enabled = title.isNotBlank() && date.isNotBlank(), onClick = {
             val cents = MergeRules.cents(target)
             if (cents == null) notify("Enter a positive target with up to two decimal places.")
             else if (LocalDate.parse(date) < LocalDate.now()) notify("Choose today or a future target date.")
             else {
-                runCatching { store.put(Entry(id = editing?.id ?: java.util.UUID.randomUUID().toString(), type = "goal", time = editing?.time ?: System.currentTimeMillis(), text = title.trim(), amount = cents, date = date, fields = mapOf("reason" to reason.trim()))) }
+                runCatching { store.put(Entry(id = editing?.id ?: java.util.UUID.randomUUID().toString(), type = "goal", time = editing?.time ?: System.currentTimeMillis(), text = title.trim(), amount = cents, date = date, fields = editing?.fields.orEmpty() - "reason")) }
                     .onSuccess { goalEditor = false }.onFailure { notify(it.localizedMessage ?: "Could not save goal") }
             }
         }) { Text("Save our goal") } }, dismissButton = { TextButton(onClick = { goalEditor = false }) { Text("Cancel") } })

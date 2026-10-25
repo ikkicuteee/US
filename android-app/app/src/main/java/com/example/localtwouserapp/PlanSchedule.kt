@@ -54,5 +54,7 @@ object MapDistance {
             kotlin.math.cos(Math.toRadians(b.latitude)) * kotlin.math.sin(lon / 2).let { it * it }
         return 6_371_000.0 * 2 * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
     }
-    fun fresh(point: LivePoint, now: Long) = now - (point.updatedAt.takeIf { it > 0 } ?: point.time) in 0 until LocationTiming.STALE_MS
+    // A delayed/retried upload must not make an older GPS measurement look new.
+    fun measuredAt(point: LivePoint) = if (point.updatedAt > 0) minOf(point.time, point.updatedAt) else point.time
+    fun fresh(point: LivePoint, now: Long) = measuredAt(point) > 0 && now - measuredAt(point) in 0 until LocationTiming.STALE_MS
 }

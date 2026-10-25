@@ -32,7 +32,7 @@ A single connected device cannot verify two-phone delivery or long-term battery 
 - Add a to-do at 23:05. Check/uncheck from Plans and Together without leaving the screen. Confirm both phones and today's widget agree after syncing.
 - Add monthly January 31 and annual February 29 plans. Check shorter-month dates and separate checkmarks for each occurrence. Check timed reminders with US backgrounded; document actual Android delivery delay.
 - Send the Kinda horny alert after confirming its text.
-- Verify blank/whitespace savings reasons prevent both add/subtract. Set a goal with a reason and target date; confirm partner display after syncing.
+- Verify deposits need only an amount and blank/whitespace reasons prevent deductions. Set a goal with name, amount and target date; confirm partner display after syncing.
 - Choose a portrait photo with EXIF rotation, adjust crop position/zoom, rotate an existing sideways avatar, save the profile, and verify the partner sees the chosen result.
 
 Automated device tests use synthetic photos and an isolated widget host. The calendar regression test supplies sample entries to the real screen without changing an account or cloud data. Keep the Gradle APK-preservation setting enabled.
@@ -59,3 +59,50 @@ A phone was not connected for the 3.4 build, so these UI and two-phone checks re
 6. Rapidly switch modes and leave/re-enter Map. A late response must not appear under the wrong mode, and requests must remain throttled. Confirm Direct stops routing requests.
 
 No connected phone or configured emulator was available for 3.5 visual or two-phone tests.
+
+## Version 3.6 location and alert acceptance checks
+
+1. Upgrade both phones. With Precise location and sharing enabled, check fixes outdoors while standing and walking. Uploads should target 15 seconds, with early updates for major accuracy improvements. Compare the accuracy labels against the actual surroundings; sensor accuracy is an estimate.
+2. Tap Refresh locations in normal and full-screen Map. Verify a new local measurement is requested, the button shows progress, and the partner's saved position retains its original age. Indoors or with Location disabled, the local request must time out after 20 seconds without giving an old point a new timestamp.
+3. Disable your sharing and tap Refresh. It must remain off while the partner's saved position reloads. Stop the partner's sharing and confirm their pin stays hidden. Test offline refresh and an account change during a pending refresh.
+4. Use approximate-only permission, then switch to Precise location through the map's settings button. Check that weak accuracy is visible. Stop sharing during a refresh: the progress indicator and sensor requests must stop.
+5. Send each new normal alert and priority alert with the receiving app connected. Normal alerts use Messages and shared updates; PASUGAT and About to cry use Priority partner alerts. Existing priority alerts also send on one tap. Verify queued offline alerts appear in chat on reconnect; background notification delivery is still subject to Android and the existing Spark-only connection design.
+6. Open Settings and confirm Developed by jwcaburog. On a small screen, verify map refresh, full-screen, recenter and sharing controls remain accessible.
+
+No phone was connected during the 3.6 build; these device checks remain pending.
+
+## Version 3.7 cycle tracker acceptance checks
+
+1. Publish the 3.7 database rules and upgrade both phones. In Plans, open Cycle tracker. Confirm its sharing explanation and that a period logged on either phone appears on both after sync.
+2. Log a start date, leave it ongoing, and later edit its end date. Check inclusive calendar markers, month boundaries, leap days and an anniversary on the same date. Future and overlapping actual periods must be rejected. Delete an incorrect record and check both calendars.
+3. Select a past/today date and save flow, pain, symptoms, mood, energy, sleep and a note. Reopen, edit from the other phone, and verify the result. Blank pain must remain unlogged rather than become zero. Spotting must not start a period automatically. Future daily logs are disabled.
+4. Enter three valid nonoverlapping period starts. Check the next-start estimate and history intervals. Change the usual length, disable estimates, and test widely varying intervals and overlapping records created concurrently while offline. Estimates must stay distinct from actual bleeding and never claim ovulation or safe days.
+5. Go offline, edit a record, and verify the pending-sync label. Reconnect and confirm convergence. Open the same edit on both phones; a detected newer version should require reopening. Sign out and confirm the old room's records are not shown in another account/room.
+6. Verify long notes/history scroll in dialogs and cards, calendar markers have accessible labels, and the UPMC guide link opens. Ensure cycle updates do not create symptom notifications or widget entries.
+
+No phone was connected during 3.7 development; these device checks remain pending.
+
+
+## Version 3.8: Redmi 13C refresh and background sharing
+
+Use both phones running 3.8. Install updates over the existing app; never uninstall or clear app data. Use an emulator or dedicated device for automated instrumentation tests.
+
+1. Verify Settings > About US displays 3.8 on both phones. Enable Precise location, Allow all the time, the in-app Android battery exemption, and Redmi Background autostart/No restrictions.
+2. With a GPS fix outdoors, observe sensor timestamps arriving approximately every 15 seconds for five minutes. Tap Refresh several times, including with a poor/indoor fix. Only one request should run at a time; regular uploads continue and a rough measurement keeps its accuracy label.
+3. Refresh then navigate away, rotate, enter/exit full screen and return. Repeat with a marker popup open and larger system font settings. Verify no crash, collapsed viewport, invalid zoom or accumulating overlays. Check adb logcat crash buffer on the affected phone if a failure repeats.
+4. Leave sharing enabled, turn the screen off for at least 15 minutes, then swipe US from Recents and observe the other phone. Repeat on Wi-Fi and mobile data, including a connection loss/recovery. Check real timestamps; an unchanged marker alone does not mean updates stopped.
+5. With sharing on, the US location notification should remain. Stop via its action; verify partner removal, sensor listener removal, and no US:LiveLocation wake lock. Repeat permission revocation and sign-out. Force-stop intentionally stops sharing until the user reopens US.
+6. On a dedicated test device only, use Android's documented Doze test sequence, restore device-idle/battery settings afterward, and compare exempt/non-exempt behavior. Check memory and battery over a 30-minute map session and screen-off session; automated tests do not establish Redmi performance or real GPS delivery.
+
+
+## Version 3.9: compact map layout
+
+On the Redmi 13C, verify the map is visible below the compact sharing/route controls. Pan and zoom it, scroll the page outside the map, and use refresh, full screen and recenter. Repeat with large text enabled. Open the sliders icon for permissions/battery settings and the information icon for full location/route details. Check that a long partner name or stop reason does not push the map off-screen. Verify the live/last-known age and accuracy remain available. Physical layout verification is pending a connected device.
+
+## Version 3.10: savings, drawings, photo pins and connectivity
+
+1. Publish the updated database rules and upgrade both phones without uninstalling. Add money with no reason; deduct with a reason, confirming a blank reason disables Deduct. Set a goal using the three fields and close it after reaching its target. Verify history and totals on both phones.
+2. Open Our drawing on both phones. Draw and Share from A; verify B's canvas and home-screen widget show it. Draw on B, then erase/Clear mine on A and Share. B's layer must remain visible on both phones and widgets. Repeat offline and reconnect. Close/reopen the editor without sharing and confirm the local draft survives. Rotate the editor while drawing.
+3. Pin US drawing from its page; resize it. Tap to reopen the editor. With location sharing enabled and the app in the background, share from the other phone and check the widget updates. Force-stop behavior is not guaranteed; reopen US to catch up.
+4. Confirm each map pin shows the correct profile photo. Change a profile photo, then check the map updates without recreating overlays on every GPS update. Test missing/invalid avatar fallback and full screen on Redmi 13C.
+5. On affected Wi-Fi, compare the Settings status with actual Firebase connectivity. Retry connection; pending local entries must survive and sync once connected. Switch between Wi-Fi and mobile data and verify recovery. Do not assume a validated Android network means Firebase is reachable. Router/ISP IPv6 diagnosis remains separate.

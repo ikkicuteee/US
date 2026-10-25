@@ -5,6 +5,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -12,6 +15,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class LocationService : Service() {
     private var location: LocationSharing? = null
     private lateinit var sync: FirebaseSync
+    private val handler = Handler(Looper.getMainLooper())
+    private var wakeLock: PowerManager.WakeLock? = null
+    private val maintainSharing = object : Runnable {
+        override fun run() {
+            if (location == null || !BackgroundLocation.canRestore(this@LocationService)) {
+                releaseWakeLock(); stopSelf(); return
+            }
+            // Only an explicitly enabled foreground session keeps the CPU awake. Timed lease
+            // limits a leaked lock; Android releases it as well if this process is killed.
+            wakeLock?.acquire(120_000L)
+            handler.postDelayed(this, 60_000L)
+        }
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -20,6 +36,9 @@ class LocationService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "stop_location") { shareLocation(false); return START_NOT_STICKY }
+        if (intent?.action != BackgroundLocation.START_SHARING && !BackgroundLocation.requested(this)) {
+            stopSelf(); return START_NOT_STICKY
+        }
         if (!BackgroundLocation.hasBackgroundAccess(this) || !SharedStore.get(this).configured) {
             stopSelf(); return START_NOT_STICKY
         }
@@ -31,22 +50,38 @@ class LocationService : Service() {
                 location = LocationSharing(this) { point ->
                     ownLocation.value = point
                     sync.publishLocation(point)
-                }.also { it.start() }
+                }
+                location!!.start()
             }
             sharingLocation.value = true
             BackgroundLocation.remember(this, true)
             BackgroundLocation.recordStatus(this, true)
-            locationStatus.value = "Sharing live · aiming for an update every 20 seconds"
+            if (wakeLock == null) wakeLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "US:LiveLocation").apply { setReferenceCounted(false) }
+            handler.removeCallbacks(maintainSharing)
+            maintainSharing.run()
         } catch (e: Exception) {
             locationStatus.value = "Location paused: ${e.localizedMessage}"
             BackgroundLocation.remember(this, false)
+            releaseWakeLock()
             stopSelf()
         }
         return if (BackgroundLocation.requested(this)) START_STICKY else START_NOT_STICKY
     }
+    fun refreshLocation(): Boolean {
+        val active = location ?: return false
+        return active.refresh()
+    }
+    fun onConnectionRestored() { location?.onConnectionRestored() }
+    private fun releaseWakeLock() {
+        handler.removeCallbacks(maintainSharing)
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+    }
     fun shareLocation(enabled: Boolean) {
         if (enabled) return
         BackgroundLocation.remember(this, false)
+        releaseWakeLock()
         location?.stop(); location = null
         sharingLocation.value = false; ownLocation.value = null
         FirebaseSync.instance?.clearLocation()
@@ -55,6 +90,7 @@ class LocationService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }
     override fun onDestroy() {
+        releaseWakeLock()
         location?.stop(); location = null
         sharingLocation.value = false; ownLocation.value = null
         instance = null
@@ -63,6 +99,7 @@ class LocationService : Service() {
     companion object {
         @Volatile var instance: LocationService? = null
         val sharingLocation = MutableStateFlow(false)
+        val refreshingLocation = MutableStateFlow(false)
         val ownLocation = MutableStateFlow<LivePoint?>(null)
         val locationStatus = MutableStateFlow("Off · your location stays private")
     }

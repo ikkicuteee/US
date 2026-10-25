@@ -80,11 +80,13 @@ class SharedStore private constructor(val context: Context) {
         prefs.edit().putString("firebase_uid", uid).putString("firebase_room", room).putString("firebase_scope", key).apply()
         if (key == scopeKey) return
         scopeKey = key; data = read(key); entries.value = data.entries; revision.value++; error.value = null
+        DrawingWidget.refresh(context)
         TodayWidget.refresh(context)
         PlanReminders.schedule(context)
     }
     @Synchronized fun put(entry: Entry): Entry {
         check(configured) { "Sign in and connect with your partner first." }
+        check(DrawingImages.canEdit(entry, deviceId)) { "You can only change your own drawing." }
         val old = data.entries.firstOrNull { it.id == entry.id }
         check(old == null || !SavingsGoals.closed(old)) { "This goal has already moved to history." }
         val next = entry.copy(author = old?.author ?: deviceId, editor = deviceId, version = (old?.version ?: 0) + 1)
@@ -122,7 +124,7 @@ class SharedStore private constructor(val context: Context) {
             try {
                 stream = target.startWrite(); stream.write(gson.toJson(snapshot).toByteArray(Charsets.UTF_8))
                 target.finishWrite(stream)
-                if (key == scopeKey) { error.value = null; TodayWidget.refresh(context); PlanReminders.schedule(context) }
+                if (key == scopeKey) { error.value = null; DrawingWidget.refresh(context); TodayWidget.refresh(context); PlanReminders.schedule(context) }
             } catch (e: Exception) {
                 target.failWrite(stream)
                 if (key == scopeKey) error.value = "Could not save changes: ${e.localizedMessage}"

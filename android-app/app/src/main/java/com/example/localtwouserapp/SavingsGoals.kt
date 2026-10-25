@@ -6,8 +6,8 @@ object SavingsGoals {
     fun history(entries: List<Entry>) = entries.filter { !it.deleted && closed(it) }.sortedByDescending { it.fields["closedAt"]?.toLongOrNull() ?: it.time }
     fun close(goal: Entry, balance: Long, now: Long): Entry {
         require(goal.type == "goal" && !goal.deleted && !closed(goal) && goal.amount > 0)
-        require(!goal.fields["reason"].isNullOrBlank() && runCatching { java.time.LocalDate.parse(goal.date) }.isSuccess) {
-            "Add a target date and reason in Edit our goal before moving it to history."
+        require(runCatching { java.time.LocalDate.parse(goal.date) }.isSuccess) {
+            "Add a target date in Edit our goal before moving it to history."
         }
         return goal.copy(fields = goal.fields + mapOf("outcome" to if (balance >= goal.amount) "success" else "failure",
             "finalBalance" to balance.toString(), "closedAt" to now.toString()))

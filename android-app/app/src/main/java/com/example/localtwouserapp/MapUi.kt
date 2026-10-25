@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -31,12 +33,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
+import kotlinx.coroutines.launch
 
 private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val attempt: RouteAttempt, val calculatedAt: Long)
 
@@ -45,9 +42,15 @@ private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val at
     val sync = remember { FirebaseSync.get(context) }
     val store = remember { SharedStore.get(context) }
     val own by LocationService.ownLocation.collectAsStateWithLifecycle()
+    val locating by LocationService.refreshingLocation.collectAsStateWithLifecycle()
+    var refreshingPartner by remember { mutableStateOf(false) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+    val refreshScope = rememberCoroutineScope()
     val partner by sync.partnerLocation.collectAsStateWithLifecycle()
     val entries by store.entries.collectAsStateWithLifecycle()
     val partnerName = PartnerNames.from(entries, store.deviceId)
+    val ownProfile = entries.firstOrNull { it.id == "profile-${store.deviceId}" && !it.deleted }
+    val partnerProfile = entries.firstOrNull { it.type == "profile" && it.author != store.deviceId && !it.deleted }
     val stopped = entries.firstOrNull { it.type == "locationstatus" && it.author != store.deviceId && it.fields["sharing"] == "false" }
     val visiblePartner = partner.takeUnless { stopped != null }
     var now by remember { mutableLongStateOf(sync.serverTime()) }
@@ -97,14 +100,7 @@ private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val at
     }
     // Never draw a route after either person stops sharing, or label stale coordinates as live.
     val shownRoute = route.takeIf { mode != null && ready && it?.mode == mode }
-    val map = remember {
-        Configuration.getInstance().apply {
-            userAgentValue = "USCoupleApp/3.5 (Android; private two-person map)"
-            osmdroidBasePath = java.io.File(context.cacheDir, "maps")
-            osmdroidTileCache = java.io.File(context.cacheDir, "maps/tiles")
-        }
-        MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); controller.setZoom(2.0); controller.setCenter(GeoPoint(15.0, 0.0)) }
-    }
+    val map = remember(context, owner) { LiveMapView(context) }
     DisposableEffect(map, owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) map.onResume()
@@ -112,40 +108,19 @@ private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val at
         }
         owner.lifecycle.addObserver(observer)
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) map.onResume()
-        onDispose { owner.lifecycle.removeObserver(observer); map.onPause(); map.onDetach() }
+        onDispose { owner.lifecycle.removeObserver(observer); map.release() }
+    }
+    LaunchedEffect(ownProfile, partnerProfile) {
+        map.updateProfiles(ownProfile?.text ?: "You", ownProfile?.fields?.get("avatar").orEmpty(), partnerName, partnerProfile?.fields?.get("avatar").orEmpty())
     }
     var fittedCount by remember { mutableIntStateOf(0) }
-    fun fitBoth() {
-        val points = listOfNotNull(own, visiblePartner).map { GeoPoint(it.latitude, it.longitude) } +
-            shownRoute?.route?.points.orEmpty().map { GeoPoint(it.latitude, it.longitude) }
-        if (points.isEmpty()) return
-        if (points.size == 1 || points.all { it.distanceToAsDouble(points[0]) < 50 }) {
-            map.controller.setZoom(17.0); map.controller.setCenter(points[0])
-        } else map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(points), true, if (fullScreen) 170 else 60, 17.0, null)
-    }
     val locations = listOfNotNull(own, visiblePartner)
-    LaunchedEffect(own, visiblePartner, partnerName, shownRoute) {
-        map.overlays.clear()
-        listOf("You" to own, partnerName to visiblePartner).forEachIndexed { index, (label, point) ->
-            if (point != null) map.overlays.add(Marker(map).apply {
-                position = GeoPoint(point.latitude, point.longitude); title = label
-                subDescription = "Accuracy ±${point.accuracy.toInt()} m"
-                icon = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (index == 0) android.graphics.Color.rgb(123, 59, 74) else android.graphics.Color.rgb(217, 160, 179))
-                    setStroke(3, android.graphics.Color.WHITE); setSize(40, 40)
-                }
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            })
+    LaunchedEffect(own, visiblePartner, partnerName, shownRoute, fullScreen) {
+        map.updateLocations(own, visiblePartner, partnerName, shownRoute?.route)
+        if (locations.size != fittedCount) {
+            fittedCount = locations.size
+            map.fitLocations(fullScreen)
         }
-        if (locations.size == 2) map.overlays.add(0, Polyline(map).apply {
-            setPoints(shownRoute?.route?.points?.map { GeoPoint(it.latitude, it.longitude) } ?: locations.map { GeoPoint(it.latitude, it.longitude) })
-            outlinePaint.color = android.graphics.Color.rgb(181, 101, 118)
-            outlinePaint.strokeWidth = if (shownRoute == null) 3f else 7f
-            if (shownRoute == null) outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 10f), 0f)
-        })
-        if (locations.size != fittedCount) { fittedCount = locations.size; map.post { fitBoth() } }
-        map.invalidate()
     }
     val straight = if (own != null && visiblePartner != null) "${RoadRoutes.distance(MapDistance.meters(own!!, visiblePartner))} apart · ${if (ready) "straight line" else "last known positions"}"
         else "Both locations are needed to calculate distance."
@@ -159,37 +134,49 @@ private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val at
     }
     @Composable fun RouteControls() {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(routeText, color = Wine, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(routeText, modifier = Modifier.weight(1f), color = Wine, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                IconButton(enabled = !locating && !refreshingPartner, onClick = refresh@{
+                    if (refreshingPartner || LocationService.refreshingLocation.value) return@refresh
+                    LocationService.instance?.refreshLocation()
+                    refreshingPartner = true
+                    refreshScope.launch {
+                        try { notify(sync.refreshPartnerLocation()) }
+                        finally { refreshingPartner = false }
+                    }
+                }) {
+                    if (locating || refreshingPartner) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, "Refresh locations")
+                }
+                IconButton(onClick = { showDetails = true }) { Icon(Icons.Default.Info, "Location and route details") }
+            }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(mode == null, { modeName = "off" }, label = { Text("Direct") })
                 RouteMode.entries.forEach { value -> FilterChip(mode == value, { modeName = value.name }, label = { Text(value.label) }) }
-            }
-            if (mode == null) Text("Road / Walk sends both locations to FOSSGIS for routing.", fontSize = 11.sp, color = Wine)
-            else {
-                Text("You → $partnerName · estimates exclude live traffic and transit schedules.", fontSize = 11.sp, color = Wine)
-                if (shownRoute != null) Text("Calculated ${(now - shownRoute.calculatedAt).coerceAtLeast(0) / 1000}s ago · refreshes after movement, at most once a minute", fontSize = 11.sp, color = Wine)
             }
         }
     }
     val partnerStatus = if (stopped != null) "$partnerName stopped sharing" + stopped.text.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
         else visiblePartner?.let { pointLabel(partnerName, it, now) } ?: "$partnerName hasn't shared a location yet."
-    Column(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.padding(horizontal = 22.dp)), verticalArrangement = Arrangement.spacedBy(if (fullScreen) 0.dp else 8.dp)) {
+    Column(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 22.dp)), verticalArrangement = Arrangement.spacedBy(if (fullScreen) 0.dp else 8.dp)) {
         if (!fullScreen) {
-            Heading("A little closer.", "Locations update about every 20 seconds while sharing.")
             LocationControls(notify)
             RouteControls()
         }
-        Box(Modifier.weight(1f).fillMaxWidth().then(if (fullScreen) Modifier else Modifier.clip(RoundedCornerShape(24.dp)))) {
+        Box((if (fullScreen) Modifier.weight(1f) else Modifier.height(380.dp)).fillMaxWidth().then(if (fullScreen) Modifier else Modifier.clip(RoundedCornerShape(24.dp)))) {
             AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
             if (fullScreen) Surface(Modifier.align(Alignment.TopStart).padding(12.dp).fillMaxWidth(.80f), shape = RoundedCornerShape(18.dp), color = Mist.copy(alpha = .96f)) {
                 Box(Modifier.padding(12.dp)) { RouteControls() }
             }
             Column(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
                 FilledIconButton(onClick = { setFullScreen(!fullScreen) }) { Icon(if (fullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, if (fullScreen) "Exit full-screen map" else "Full-screen map") }
-                FilledIconButton(onClick = { fitBoth() }) { Icon(Icons.Default.MyLocation, "Show both locations and route") }
+                FilledIconButton(onClick = { map.fitLocations(fullScreen) }) { Icon(Icons.Default.MyLocation, "Show both locations and route") }
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color.White.copy(alpha = .92f)).padding(5.dp)) {
-                if (fullScreen) Text(partnerStatus, fontSize = 11.sp, color = Wine)
+                if (fullScreen) {
+                    own?.let { Text(pointLabel("You", it, now), fontSize = 11.sp, color = Wine) }
+                    Text(partnerStatus, fontSize = 11.sp, color = Wine, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { showDetails = true })
+                }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("© OpenStreetMap contributors", fontSize = 10.sp, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/copyright"))) })
                     Text("Routes: FOSSGIS / OSRM", fontSize = 10.sp, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://routing.openstreetmap.de/about.html"))) })
@@ -199,12 +186,25 @@ private data class CachedRoute(val mode: RouteMode, val route: RoadRoute, val at
         }
         if (!fullScreen) Column(Modifier.padding(bottom = 10.dp)) {
             if (own != null) Text(pointLabel("You", own!!, now), fontSize = 11.sp, color = Wine)
-            Text(partnerStatus, fontSize = 11.sp, color = Wine)
+            Text(partnerStatus, fontSize = 11.sp, color = Wine, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { showDetails = true })
         }
     }
+    if (showDetails) AlertDialog(onDismissRequest = { showDetails = false },
+        title = { Text("Location details") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(own?.let { pointLabel("You", it, now) } ?: "Your location is unavailable.")
+            Text(partnerStatus)
+            Text(routeText)
+            Text("Accuracy is each phone's estimated uncertainty. Locations update about every 15 seconds while sharing.", fontSize = 13.sp)
+            Text("Road and Walk send both locations to FOSSGIS for routing. Estimates exclude live traffic and public transport schedules.", fontSize = 13.sp)
+            shownRoute?.let { Text("Route calculated ${(now - it.calculatedAt).coerceAtLeast(0) / 1000}s ago. Routes refresh after movement, at most once a minute.", fontSize = 13.sp) }
+        } },
+        confirmButton = { TextButton(onClick = { showDetails = false }) { Text("Done") } })
+
 }
 
 private fun pointLabel(name: String, point: LivePoint, now: Long): String {
-    val age = (now - (point.updatedAt.takeIf { it > 0 } ?: point.time)).coerceAtLeast(0) / 1000
-    return "$name · ${if (MapDistance.fresh(point, now)) "Live" else "Last known"} · ${age}s ago · ±${point.accuracy.toInt()} m"
+    val age = (now - MapDistance.measuredAt(point)).coerceAtLeast(0) / 1000
+    return "$name · ${if (MapDistance.fresh(point, now)) "Live" else "Last known"} · ${age}s ago · ±${kotlin.math.ceil(point.accuracy.toDouble()).toInt()} m" +
+        if (point.accuracy > 100f) " · low accuracy" else ""
 }

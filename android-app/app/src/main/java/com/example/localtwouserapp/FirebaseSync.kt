@@ -1,11 +1,17 @@
 ﻿package com.example.localtwouserapp
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.SystemClock
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.security.SecureRandom
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class LivePoint(val latitude: Double = 0.0, val longitude: Double = 0.0,
     val accuracy: Float = 0f, val time: Long = 0L, val updatedAt: Long = 0L)
@@ -28,6 +34,10 @@ class FirebaseSync private constructor(private val context: Context) {
     val invitation = MutableStateFlow("")
     val inviteExpires = MutableStateFlow(0L)
     val loadingHistory = MutableStateFlow(false)
+    val retrying = MutableStateFlow(false)
+    private val networks = context.getSystemService(ConnectivityManager::class.java)
+    private var validatedNetwork: Network? = null
+    private var lastRetry = -15_000L
     private var generation = 0
     private var activeUid = ""
     private var offset = 0L
@@ -39,13 +49,29 @@ class FirebaseSync private constructor(private val context: Context) {
     fun serverTime() = System.currentTimeMillis() + offset
 
     init {
+        networks.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                scope.launch {
+                    val ready = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    val changed = ready && validatedNetwork != network
+                    validatedNetwork = network.takeIf { ready }
+                    refreshStatus()
+                    // One retry when a usable network changes; Firebase handles ongoing backoff.
+                    if (changed && !connected.value) retryConnection()
+                }
+            }
+            override fun onLost(network: Network) { scope.launch {
+                if (validatedNetwork == network) validatedNetwork = null
+                refreshStatus()
+            } }
+        })
         // Durable documents/outbox are stored per account by SharedStore. GPS writes are never
         // persisted by the SDK, so a process restart cannot replay a route of stale fixes.
         root.child(".info/serverTimeOffset").addValueEventListener(listener { offset = (it.value as? Number)?.toLong() ?: 0L })
         root.child(".info/connected").addValueEventListener(listener {
             connected.value = it.getValue(Boolean::class.java) == true
             refreshStatus()
-            if (connected.value) { setPresence(); sendPending() }
+            if (connected.value) { setPresence(); sendPending(); LocationService.instance?.onConnectionRestored() }
         })
         auth.addAuthStateListener { next ->
             user.value = next.currentUser
@@ -68,9 +94,23 @@ class FirebaseSync private constructor(private val context: Context) {
         status.value = when {
             user.value == null -> "Sign in to connect your worlds"
             room.value.isEmpty() -> "Create a private space or join your partner"
-            !connected.value -> "Offline · changes saved on this phone"
+            !connected.value -> ConnectionStatus.disconnected(
+                networks.getNetworkCapabilities(networks.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
             partnerOnline.value -> "Connected · ${store.partnerName} is online"
             else -> "Connected · ${store.partnerName} can catch up later"
+        }
+    }
+    fun retryConnection() {
+        if (retrying.value || SystemClock.elapsedRealtime() - lastRetry < 15_000) return
+        lastRetry = SystemClock.elapsedRealtime()
+        retrying.value = true
+        scope.launch {
+            try {
+                database.goOffline()
+                delay(250)
+                database.goOnline()
+                delay(14_750)
+            } finally { retrying.value = false; refreshStatus() }
         }
     }
     private fun bindAccount(uid: String) {
@@ -134,7 +174,7 @@ class FirebaseSync private constructor(private val context: Context) {
         watch(base.child("locations")) { snapshot ->
             partnerLocation.value = snapshot.children.firstOrNull { it.key != uid }?.let { decodePoint(it) }
         }
-        listOf("message", "alert", "event", "saving", "goal", "profile", "locationstatus").forEach { type ->
+        listOf("message", "alert", "event", "saving", "goal", "profile", "locationstatus", "cycle", "drawing").forEach { type ->
             val ref = base.child("items").child(type)
             val query = if (type in listOf("message", "alert")) ref.orderByChild("time").limitToLast(100) else ref
             var initialized = false
@@ -166,7 +206,8 @@ class FirebaseSync private constructor(private val context: Context) {
     }.getOrNull()
     private fun decodePoint(snapshot: DataSnapshot): LivePoint? = runCatching {
         snapshot.getValue(LivePoint::class.java)?.takeIf {
-            it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 && it.time > 0
+            it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 && it.time > 0 &&
+                it.accuracy.isFinite() && it.accuracy > 0f && it.accuracy <= 100_000f
         }
     }.getOrNull()
     fun signIn(email: String, password: String, create: Boolean, result: (String?) -> Unit) {
@@ -274,6 +315,29 @@ class FirebaseSync private constructor(private val context: Context) {
                 }, false)
             }
         }
+    }
+    suspend fun refreshPartnerLocation(): String {
+        if (!store.configured || !connected.value || room.value.isEmpty())
+            return "Offline · partner's position cannot refresh yet"
+        val expected = generation
+        val ref = root.child("rooms").child(room.value).child("locations")
+        return try {
+                val snapshot = withTimeout(12_000) {
+                    suspendCancellableCoroutine<DataSnapshot> { continuation ->
+                        ref.get().addOnSuccessListener { if (continuation.isActive) continuation.resume(it) }
+                            .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
+                    }
+                }
+                if (expected != generation) return "Shared space changed; refresh again"
+                if (!connected.value) return "Offline · showing the last known partner position"
+                val point = snapshot.children.firstOrNull { it.key != activeUid }?.let { decodePoint(it) }
+                val current = partnerLocation.value
+                if (point == null || current == null || point.updatedAt >= current.updatedAt) partnerLocation.value = point
+                "Partner's latest saved position loaded · check its age below"
+            } catch (_: TimeoutCancellationException) {
+                "Partner refresh timed out · showing the last known position"
+            } catch (e: CancellationException) { throw e
+            } catch (_: Exception) { "Could not refresh partner's position · check your connection" }
     }
     fun publishLocation(point: LivePoint) {
         if (!connected.value || !store.configured) return

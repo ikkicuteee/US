@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     val partner by sync.partnerUid.collectAsStateWithLifecycle()
     val expires by sync.inviteExpires.collectAsStateWithLifecycle()
     val problem by sync.problem.collectAsStateWithLifecycle()
+    val connected by sync.connected.collectAsStateWithLifecycle()
+    val retrying by sync.retrying.collectAsStateWithLifecycle()
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var createAccount by rememberSaveable { mutableStateOf(false) }
@@ -42,6 +44,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         Heading("Connect your worlds.", "One private space for the two of you.")
         SoftCard {
             Text(status, color = Wine)
+            if (!connected) TextButton(enabled = !retrying, onClick = { sync.retryConnection() }) {
+                Text(if (retrying) "Reconnecting…" else "Retry connection")
+            }
             problem?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             if (user == null) {
                 Text(if (createAccount) "Make your account" else "Welcome back", fontWeight = FontWeight.Bold)
@@ -99,11 +104,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
             }) { Text("Notification settings") }
         }
         SoftCard {
+            TextButton(onClick = { context.startActivity(Intent(context, MainActivity::class.java).putExtra("page", "drawing")) }) { Text("Our drawing & widget") }
             Text("Photo frames", fontWeight = FontWeight.Bold)
             Text("Keep a favorite picture on your home screen. Each frame has its own photo, saved on this phone.", fontSize = 13.sp)
             TextButton(onClick = { context.startActivity(Intent(context, PhotoFrameActivity::class.java)) }) {
                 Text("Add a photo widget")
             }
+        }
+        SoftCard {
+            Text("About US", fontWeight = FontWeight.Bold)
+            val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty() }
+            Text("Version $version")
+            Text("Developed by jwcaburog")
         }
         SoftCard {
             Text("Location is your choice", fontWeight = FontWeight.Bold)

@@ -123,12 +123,17 @@ check("overlong stop reason rejected","PUT",sp,{**status,"version":2,"text":"x"*
 check("resume sharing clears reason","PUT",sp,{**status,"version":2,"text":"","fields":{"sharing":"true"}},"alice")
 saving={**entry,"id":"saving","type":"saving","amount":100,"text":"Weekly contribution"}
 sv="rooms/"+room+"/items/saving/saving"
-check("saving requires reason","PUT",sv,{**saving,"text":"  "},"alice",allowed=False)
+check("deduction requires reason","PUT",sv,{**saving,"amount":-100,"text":"  "},"alice",allowed=False)
 check("saving with reason accepted","PUT",sv,saving,"alice")
+check("deposit without reason accepted","PUT",sv,{**saving,"version":2,"text":""},"alice")
+check("deduction with reason accepted","PUT",sv,{**saving,"version":3,"amount":-100,"text":"Bus fare"},"alice")
 goal={**entry,"id":"shared-goal","type":"goal","amount":100000,"text":"Trip","date":"2027-01-01","fields":{"reason":"Anniversary trip"}}
 gp="rooms/"+room+"/items/goal/shared-goal"
 check("goal with reason and date accepted","PUT",gp,goal,"alice")
-check("goal without reason rejected","PUT",gp,{**goal,"version":2,"fields":{}},"alice",allowed=False)
+simplegoal={**goal,"id":"simple-goal","fields":{}}
+simplepath="rooms/"+room+"/items/goal/simple-goal"
+check("goal without reason accepted","PUT",simplepath,simplegoal,"alice")
+check("goal without reason can be archived","PUT",simplepath,{**simplegoal,"version":2,"fields":{"outcome":"success","finalBalance":"100000","closedAt":str(now)}},"alice")
 check("goal without target date rejected","PUT",gp,{**goal,"version":2,"date":""},"alice",allowed=False)
 check("partner can update goal","PUT",gp,{**goal,"version":2,"editor":"bob","fields":{"reason":"Saving for flights"}},"bob")
 
@@ -167,5 +172,71 @@ with ThreadPoolExecutor(max_workers=2) as pool:
 assert sum(200 <= code < 300 for code in results) == 1, results
 count += 1
 print("PASS exactly one concurrent claimant accepted")
+cycle_id = "cycle-period-11111111-1111-1111-1111-111111111111"
+cycle = {**entry, "id":cycle_id, "type":"cycle", "text":"", "date":"2026-09-01", "fields":{"kind":"period","end":"2026-09-05"}}
+cp = "rooms/"+room+"/items/cycle/"+cycle_id
+check("member logs cycle period","PUT",cp,cycle,"alice")
+check("partner reads cycle period","GET",cp,user="bob")
+check("anonymous cannot read cycle period","GET",cp,allowed=False)
+check("outsider cannot read cycle period","GET",cp,user="eve",allowed=False)
+check("outsider cannot write cycle period","PUT",cp,{**cycle,"version":2,"editor":"eve"},"eve",allowed=False)
+check("partner can edit shared cycle","PUT",cp,{**cycle,"version":2,"editor":"bob"},"bob")
+check("stale cycle edit denied","PUT",cp,cycle,"alice",allowed=False)
+for label, patch in [
+    ("invalid cycle date", {"date":"2026-99-45"}),
+    ("reversed period dates", {"fields":{"kind":"period","end":"2026-08-31"}}),
+    ("unknown cycle field", {"fields":{"kind":"period","end":"","unknown":"x"}}),
+    ("cycle kind cannot change", {"fields":{"kind":"settings","predict":"true","length":"28"}}),
+    ("cycle cannot affect savings", {"amount":100}),
+    ("cycle cannot be a task", {"done":True}),
+    ("cycle end is required", {"fields":{"kind":"period"}}),
+]:
+    check(label,"PUT",cp,{**cycle,"version":3,**patch},"alice",allowed=False)
+check("ongoing cycle period allowed","PUT",cp,{**cycle,"version":3,"fields":{"kind":"period","end":""}},"alice")
+check("partner can remove cycle period","PUT",cp,{**cycle,"version":4,"editor":"bob","deleted":True},"bob")
+daily={**cycle,"id":"cycle-day-2026-09-01","text":"Rested","fields":{"kind":"day","flow":"Heavy","pain":"7","mood":"Okay","energy":"Low","sleep":"Poor","symptoms":"Cramps|Bloating"}}
+dp="rooms/"+room+"/items/cycle/"+daily["id"]
+check("daily cycle log allowed","PUT",dp,daily,"alice")
+check("partner reads daily notes","GET",dp,user="bob")
+for key,value in [("pain","11"),("pain","-1"),("flow","invalid"),("symptoms","Unknown"),("sleep","invalid"),("mood","invalid"),("energy","invalid"),("predict","true")]:
+    check("invalid daily "+key+" "+value,"PUT",dp,{**daily,"version":2,"fields":{**daily["fields"],key:value}},"alice",allowed=False)
+check("daily note limit enforced","PUT",dp,{**daily,"version":2,"text":"x"*1001},"alice",allowed=False)
+check("daily date must match key","PUT",dp,{**daily,"version":2,"date":"2026-09-02"},"alice",allowed=False)
+check("missing daily field denied","PUT",dp,{**daily,"version":2,"fields":{k:v for k,v in daily['fields'].items() if k!='flow'}},"alice",allowed=False)
+check("unlogged daily pain allowed","PUT",dp,{**daily,"version":2,"fields":{**daily['fields'],"pain":"","symptoms":""}},"alice")
+config={**cycle,"id":"cycle-settings","date":"","fields":{"kind":"settings","predict":"true","length":"0"}}
+scp="rooms/"+room+"/items/cycle/cycle-settings"
+check("automatic cycle settings allowed","PUT",scp,config,"alice")
+for length in ["-1","366","1.5","abc",""]:
+    check("invalid cycle length "+length,"PUT",scp,{**config,"version":2,"fields":{**config['fields'],"length":length}},"alice",allowed=False)
+check("partner can disable estimates","PUT",scp,{**config,"version":2,"editor":"bob","fields":{"kind":"settings","predict":"false","length":"28"}},"bob")
+check("outsider cannot read cycle settings","GET",scp,user="eve",allowed=False)
+check("unauthenticated cycle write denied","PUT",dp,daily,allowed=False)
+# Drawing layers belong to their author, including erasure and replacement.
+drawing={**entry,"id":"drawing-alice","type":"drawing","text":"","fields":{"image":"aGVsbG8="}}
+drawpath="rooms/"+room+"/items/drawing/drawing-alice"
+check("author shares drawing","PUT",drawpath,drawing,"alice")
+check("partner reads drawing","GET",drawpath,user="bob")
+check("outsider cannot read drawing","GET",drawpath,user="eve",allowed=False)
+check("anonymous cannot read drawing","GET",drawpath,allowed=False)
+check("partner cannot replace drawing","PUT",drawpath,{**drawing,"editor":"bob","version":2},"bob",allowed=False)
+check("partner cannot erase drawing","PUT",drawpath,{**drawing,"editor":"bob","version":2,"fields":{"image":""}},"bob",allowed=False)
+check("partner cannot delete drawing","PUT",drawpath,{**drawing,"editor":"bob","version":2,"deleted":True},"bob",allowed=False)
+check("partner cannot forge drawing author","PUT",drawpath,{**drawing,"author":"bob","editor":"bob","version":2},"bob",allowed=False)
+check("other item types cannot collide with drawing IDs","PUT","rooms/"+room+"/items/event/drawing-alice",{**drawing,"type":"event","author":"bob","editor":"bob","version":99,"fields":{}},"bob",allowed=False)
+check("outsider cannot write drawing","PUT",drawpath,{**drawing,"editor":"eve","version":2},"eve",allowed=False)
+check("drawing size bounded","PUT",drawpath,{**drawing,"version":2,"fields":{"image":"a"*128001}},"alice",allowed=False)
+check("unknown drawing fields denied","PUT",drawpath,{**drawing,"version":2,"fields":{"image":"","other":"x"}},"alice",allowed=False)
+check("missing drawing image denied","PUT",drawpath,{**drawing,"version":2,"fields":{}},"alice",allowed=False)
+check("non base64 drawing denied","PUT",drawpath,{**drawing,"version":2,"fields":{"image":"<image>"}},"alice",allowed=False)
+check("drawing cannot affect savings","PUT",drawpath,{**drawing,"version":2,"amount":1},"alice",allowed=False)
+check("drawing cannot contain text","PUT",drawpath,{**drawing,"version":2,"text":"x"},"alice",allowed=False)
+check("author can clear own drawing","PUT",drawpath,{**drawing,"version":2,"fields":{"image":""}},"alice")
+check("author can replace own drawing","PUT",drawpath,{**drawing,"version":3},"alice")
+check("author can tombstone own drawing","PUT",drawpath,{**drawing,"version":4,"deleted":True},"alice")
+bobdrawing={**drawing,"id":"drawing-bob","author":"bob","editor":"bob"}
+bobpath="rooms/"+room+"/items/drawing/drawing-bob"
+check("partner has independent drawing","PUT",bobpath,bobdrawing,"bob")
+check("alice cannot erase bob drawing","PUT",bobpath,{**bobdrawing,"version":2,"editor":"alice","fields":{"image":""}},"alice",allowed=False)
 print(str(count)+" rules checks passed.")
 

@@ -20,6 +20,9 @@ class SavingsGoalsTest {
         assertEquals("success", SavingsGoals.close(goal, 10000, 1).fields["outcome"])
         assertEquals("failure", SavingsGoals.close(goal, -100, 1).fields["outcome"])
     }
+    @Test fun goalWithoutReasonCanBeArchived() {
+        assertEquals("success", SavingsGoals.close(goal.copy(fields = emptyMap()), 10000, 1).fields["outcome"])
+    }
     @Test fun newGoalsAndLedgerCannotOverwriteHistory() {
         val closed = SavingsGoals.close(goal, 10000, 1)
         val next = goal.copy(id = "new-goal")

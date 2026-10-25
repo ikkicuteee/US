@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
         }
         Notices.channels(this); FirebaseSync.get(this); handleIntent(intent)
         TodayWidget.refresh(this)
+        DrawingWidget.refresh(this)
         PlanReminders.schedule(this)
         setContent { MaterialTheme(colorScheme = UsColors) { UsApp(this) } }
     }
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 "map" -> MapPage(notify, mapFullscreen) { fullMap = it }
                 "profile" -> ProfilePage(store, entries, notify)
                 "savings" -> SavingsPage(store, entries, notify)
+                "drawing" -> DrawingPage(store, notify)
                 else -> SettingsPage(store, status, notify) { page = "home" }
             } }
         }
@@ -158,14 +160,17 @@ class MainActivity : ComponentActivity() {
             Text(money(balance), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Wine)
             Text("Saved together · view our goal →")
         }
-        Text("Send a little feeling", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        listOf("Miss you ♥", "Need a hug", "Thinking of you").forEach { mood ->
-            SuggestionChip(onClick = { store.put(Entry(type = "message", text = mood)); notify("Sent to your conversation") }, label = { Text(mood) })
+        OutlinedButton(onClick = { navigate("drawing") }, modifier = Modifier.fillMaxWidth()) { Text("Our drawing") }
+        Text("Normal alerts", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        listOf("Miss you ♥", "Need a hug", "Thinking of you", "Angry", "What're you doing rn", "Head hurts", "I'm tired", "Cuddle").forEach { mood ->
+            SuggestionChip(onClick = { store.put(Entry(type = "message", text = mood)); notify("Added to your conversation") }, label = { Text(mood) })
         }
-        var confirm by remember { mutableStateOf<String?>(null) }
-        OutlinedButton(onClick = { confirm = "I need you. Please check in with me. ♥" }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.NotificationsActive, null); Spacer(Modifier.width(8.dp)); Text("I need you · priority alert") }
-        OutlinedButton(onClick = { confirm = "Kinda horny" }, modifier = Modifier.fillMaxWidth()) { Text("Kinda horny · send an alert") }
-        if (confirm != null) AlertDialog(onDismissRequest = { confirm = null }, title = { Text("Let $partnerName know?") }, text = { Text("Send “$confirm” as a priority notification. They can see it when their app reconnects. Background notifications may be delayed.") },
-            confirmButton = { TextButton(onClick = { store.put(Entry(type = "alert", text = confirm.orEmpty())); confirm = null; notify("Alert added to your conversation") }) { Text("Send alert") } }, dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } })
+        Text("Priority alerts · tap to send", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        listOf("I need you. Please check in with me. ♥", "Kinda horny", "PASUGAT", "About to cry").forEach { alert ->
+            OutlinedButton(onClick = { store.put(Entry(type = "alert", text = alert)); notify("Priority alert added to your conversation") }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.NotificationsActive, null)
+                Spacer(Modifier.width(8.dp)); Text(alert)
+            }
+        }
     }
 }
